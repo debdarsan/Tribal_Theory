@@ -1,0 +1,44 @@
+{"app_text_size": 12,
+    "app_font_family": "Arial",
+    "app_font_color": "#5fa8de",
+    
+    "user_bg_color": "#4e4e51",
+    "user_fg_color": "#c0d5e6",
+    "user_font_family": "Segoe UI",
+    "user_font_size": 12,
+    
+    "bot_bg_color": "#374151",
+    "bot_fg_color": "#E2E8EA",
+    "bot_font_family": "Segoe UI",
+    "bot_font_size": 12,
+    
+    "sidebar_color": "#262629",
+    "main_area_color": "#929297",
+    
+    "latex_color": "orange",
+    "table_text_color": "#877ed4",
+    "table_outline_color": "#389eca",
+    
+    "pencil_icon_svg_file_path": "pencil.svg",
+    "pencil_icon_color": "#20ee92",
+    "pencil_animation_style": "blink",
+    "pencil_animation_duration": "1.0",
+    "pencil_display_size": "1",
+    
+    "latex_icon_svg_file_path": "lambda.svg",
+    "latex_icon_color": "#877ed4",
+    "latex_animation_style": "blink",
+    "latex_animation_duration": "1.0",
+    "latex_display_size": "1",
+    
+    "table_icon_svg_file_path": "table.svg",
+    "table_icon_color": "#389eca",
+    "table_animation_style": "blink",
+    "table_animation_duration": "1.0",
+    "table_display_size": "1",
+    
+    "image_icon_svg_file_path": "image.svg",
+    "image_icon_color": "#f70a8d",
+    "image_icon_animation_style": "blink",
+    "image_icon_animation_duration": "1.0",
+    "image_icon_display_size": "1"}

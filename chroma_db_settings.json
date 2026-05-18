@@ -1,0 +1,20 @@
+{
+    "text_collection_name": "BIDA_texts",
+    "image_collection_name": "BIDA_images",
+    "document_source_folder": "DocumentSource",
+    "chroma_db_directory": "Chroma_VectorStore",
+    "loader_type": "MyMarkdownHeaderTextSplitter",
+    "vectorstore_type": "Chroma",
+    "embedding_model": "OpenAIEmbeddings",
+    "creation_mode": "Reset",
+    "correct_formatting": true,
+    "process_image": true,
+    "format_toc": true,
+    "use_enhanced_alt_text": true,
+    "max_tokens": 1000,
+    "max_tokens_per_batch": 300000,
+    "max_image_height": 300,
+    "ignore_image_size_kb": 1,
+    "summarize_pre_fol_texts_bida_text": false,
+    "summarize_pre_fol_texts_bida_image": false
+}

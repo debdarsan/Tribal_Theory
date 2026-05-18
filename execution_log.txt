@@ -1,0 +1,45 @@
+### Build Mode: RESET
+All output directories will be deleted. Fresh VectorDB will be created.
+[OK] Summarization: BIDA_texts=False, BIDA_images=False
+[OK] Parameters set: max_tokens=1000, max_tokens_per_batch=300000, max_image_height=300, ignore_image_size_kb=1
+### Step 1: Reset Output Directories
+[SKIP] Directory not found (skipped): Acronyms
+[SKIP] Directory not found (skipped): Chroma_VectorStore
+[OK] Deleted directory: Conversion
+[OK] Deleted directory: data
+[OK] Deleted directory: Debug
+[OK] Deleted directory: Ingestion
+[OK] Deleted directory: static
+[OK] Deleted directory: table_data
+[SKIP] Directory not found (skipped): text_block_data
+[OK] Deleted __pycache__: .\utils\__pycache__
+[OK] Directory cleanup completed
+[OK] Directories initialized
+### Step 2: DOCX to Markdown Conversion
+[OK] Converted (enhanced): Workflow Best Practices.docx - 0 images processed
+[OK] Document conversion completed
+   Total images processed with GPT-4o Vision: 0
+   **GPT-4o Vision API Usage:**
+   - Total Time: 0.0 seconds
+   - Total Tokens: 0 (Input: 0, Output: 0)
+   - API Calls: 0
+   - Estimated Cost: $0.0000
+### Extract Acronyms
+   Found 8 acronyms
+   Saved to: C:\Users\niyogid\Box\Tribal_knowledge\BIDA_prod\Acronyms\BIDA-Acronyms.csv
+[OK] Acronym extraction completed
+### Step 3: Generate Document Splits
+   Generated 2 document splits
+   Saved splits to: C:\Users\niyogid\Box\Tribal_knowledge\BIDA_prod\Data\splits.json
+[OK] Split generation completed
+### Step 4: Build Chroma VectorDB
+   Loaded 2 splits from JSON
+   Loaded OpenAIEmbeddings embedding model
+   VectorDB created at: Chroma_VectorStore
+   Total records: 2
+   Rejected duplicates: 0
+[OK] VectorDB build completed
+### Step 6: Build BM25 Indexes
+   BM25 text index built (2 documents)
+[OK] BM25 indexes saved to disk
+[OK] Build completed successfully

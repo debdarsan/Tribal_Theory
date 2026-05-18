@@ -1,0 +1,99 @@
+A/P,Accounts Payable.
+ABA,American Bankers Association ABA routing number for transfers.
+AC,Account Code
+ACNA,"Access Customer Name Abbreviation. For CABS and SECABS invoices, the field may be populated with XX for a multiple State account."
+Acronym,Meaning
+ACTK,Access Customer Terminal Location.
+ADJ,Adjustment
+Amt,Amount
+AP,Accounts Payable.
+AP Code,"Accounts Payable Code. In BillTrak, it is assigned to a BAN for tracking expenses."
+APZ,A and Z location and pulsing.
+ASG,Access Service Group. Field in the Access Service Request that identifies the specific End Office or Tandem CLLI code assigned to a particular circuit or group of circuits.
+Avail,Available
+BAM,BillTrak Analysis Module.
+BAN,Billing Account Number.
+BCB,Bulk Capacity Transport Billing.
+BF,Balance Forward.
+BIP,Border Interconnect Percentage.
+BSA,Basic Service Agreement.
+CABS,Carrier Access Billing System.
+Calc,Calculation
+Cat,Category
+CCNA,Common Carrier Name Abbreviation.
+CD,Current Due.
+CDR,Call Detail Record. A log of network events like calls or data usage.
+CFA,Connecting Facility Assignment. The carrier system and channel that is used for the high capacity interface on access service.
+CI,Circuit Inventory
+CIC,Carrier Identification Code assigned to a customer when a single CIC is present; only applies the switched invoices.
+Ckt,Circuit
+CLEC,Competitive Local Exchange Carrier. A telecom company that competes with ILECs after the 1996 Telecommunications Act opened up markets for competition. They may lease infrastructure from ILECs.
+CLLI,"Common Language Location Identifier. An 11-character, globally unique code that identifies a physical location, network site, or equipment in the telecommunications industry. It serves as a universal identifier for specific physical points in a network."
+Co,Company
+DEOT,Direct End Office Trunk.
+Desc,Description
+DS1,"Digital Signal 1, a standard for transmitting data at 1.544 megabits per second Mbps."
+EC,Exchange Company.
+EDI,"Electronic Data Interchange. An exchange of standardized business documents, such as invoices, between companies. EDI 811 is a common invoice format."
+EDI,Electric Service Identifier.
+Elig,Eligible
+Est,Established
+FID,Field Identifier.
+FRC,Fractional Recurring Charge.
+GL Code,General Ledger Code. A unique number or code used in accounting to classify and track financial transactions.
+HBAN,The BAN associated with the high capacity circuit.
+IC,Interexchange Company.
+ICM,Invoice Circuit Master.
+ICSC,"Code Inter-exchange Customer Service code. The four-digit code that identifies the location where access customer bill inquiries are processed. Dispute BAN When the consolidated dispute processing option is enabled, you have the option to link the account to a Dispute BAN. This field identifies the BAN to which disputes shall be filed."
+ICSC,"Interexchange Customer Service Center. 4-character alphanumeric identifier e.g., FL02, NC01 that identifies a specific service center."
+ILEC,"Incumbent Local Exchange Carrier. One of the original, often monopolistic, landline phone companies that existed prior to 1996 Telecommunications Act e.g., AT&T."
+Ind,Indicator
+Info,Information
+LATA,"Local Access Transport Area. The 3-digit code denoting the LATA for which billing charges are incurred. For CABS and SECABS invoices, the field may be populated with zeroes for a multi-LATA account."
+LERG,"Local Exchange Routing Guide. Comprehensive database used primarily for call routing, but it also contains data essential for determining the correct taxes and regulatory fees."
+LIC,Line Item Code.
+Loc,Location
+LPC,Late Payment Charges.
+LPIC,IntraLATA Pre-subscription Indicator Code. The carrier the customer selected for IntraLATA traffic.
+LSO,Local Service Office.
+LTP,Local Transport. The LTP field indicates the type of Local Transport.
+MOU,Minutes of Usage.
+MPB,Meet Point Billing.
+MRC,Monthly Recurring Charges.
+MSA,Metropolitan Statistical Area.
+NC,Network Channel.
+NCI,Network Channel Interface.
+NECA,National Exchange Carrier Association.
+NRC,Non-Recurring Charges.
+OCC,Other Charges and Credits.
+OCL,Office Code Location.
+OCN,"Originating Company Code. A unique, four-digit code identifying the vendor. National Exchange Carrier Association NECA maintains the list of valid values."
+Orig,Original
+Pct,Percent
+PIC,Pre-subscription Indicator Code PIC of the carrier the customer selected for InterLATA traffic.
+PIU,Percent Interstate Usage.
+PLU,Percent Local Usage.
+PML,Percent Mobile to Landline.
+Pmt,Payment
+PON,Purchase Order Number.
+POU,Percent Originating Usage.
+Qty,Quantity
+Rec,Reconcile
+SECAB,Small Exchange Carrier Access Billing.
+SI,Site Inventory
+SON,Service Order Number.
+SONET,Synchronous Optical NETwork.
+SP,System Payment.
+Sur,Surcharge
+Svc,Service
+SVI,Service Information.
+TAR,Taxing Area Rate.
+TN,Telephone Number.
+TRS,Tax Reg Fee Surcharge.
+TS,Tax Surcharge
+TSC,Two Six Code. The unique identifier assigned to the message trunk group. There can be multiple TSCs associated with a single ASG/OCL.
+USOC,Universal Service Order Code. A code identifying the specific item of equipment or service provided.
+VoIP,Voice over Internet Protocol. Service that allows you to make phone calls over your internet connection.
+VVREF,Valid Value Reference.
+WTN,Working Telephone Number.
+XIF,XTrak Invoice Format.
