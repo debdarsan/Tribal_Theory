@@ -309,6 +309,21 @@ def show_color_settings():
                 ss._pending_theme = 'light'
                 st.rerun()
 
+def _display_name_for(user_id) -> str:
+    """Map a user_id (like 'dn') to its Full Name from users.xlsx. Cached
+    in session state on first call. Falls back to the raw id if not found."""
+    cache = ss.get('_user_id_to_full_name')
+    if cache is None:
+        try:
+            import pandas as pd
+            df = pd.read_excel('users.xlsx')
+            cache = {str(uid): str(fn) for uid, fn in zip(df['User ID'], df['Full Name'])}
+        except Exception:
+            cache = {}
+        ss._user_id_to_full_name = cache
+    return cache.get(str(user_id), str(user_id))
+
+
 def show_hitl_review_sidebar():
     """Sidebar HITL queue: clickable list. Clicking a row sets the selected
     gap_id in session state; show_hitl_review_main() then renders the full
@@ -406,7 +421,13 @@ def show_hitl_review_main() -> bool:
     if row.get('missing_info'):
         st.info(f"**Identified gap:** {row['missing_info']}")
 
-    with st.expander("Original LLM answer (rejected as insufficient)", expanded=False):
+    _is_gap_row = bool(row.get("is_gap"))
+    _ans_label = (
+        "Original LLM answer (rejected as insufficient)"
+        if _is_gap_row
+        else "Original LLM answer (user added context anyway)"
+    )
+    with st.expander(_ans_label, expanded=False):
         st.code((row.get('answer') or '')[:3000], language=None)
 
     st.markdown("**User contribution** (edit if you want to refine before approving):")
@@ -423,7 +444,7 @@ def show_hitl_review_main() -> bool:
         placeholder="Why approve / reject? Logged for audit.",
     )
 
-    reviewer_name = ss.get('user_name') or 'unknown'
+    reviewer_name = ss.get('full_name') or ss.get('user_name') or 'unknown'
     col_a, col_r, _ = st.columns([1, 1, 4])
     with col_a:
         if st.button("✓ Approve & commit to KB", type="primary", key=f"hitl_main_approve_{sel_id}", use_container_width=True):
@@ -597,7 +618,7 @@ def _synth_qa_generate_and_answer(*, purpose: str, sel_state_key: str,
                                 ar['answer'], ar['confidence'], ar['missing_info'],
                                 num_text_docs=ar['num_text_docs'],
                                 num_image_docs=ar['num_image_docs'],
-                                user_name=ss.get('user_name'),
+                                user_name=ss.get('full_name') or ss.get('user_name'),
                                 model=model,
                                 source_docs_json=src_docs_json,
                             )
@@ -681,7 +702,15 @@ def _render_text_sources_html(source_docs: list) -> str:
     for i, doc in enumerate(source_docs, 1):
         page_content = (doc.get('page_content') or '') if isinstance(doc, dict) else ''
         metadata = (doc.get('metadata') or {}) if isinstance(doc, dict) else {}
-        source_doc_name = metadata.get('File', 'Information not available')
+        # Pick the best label for the source:
+        # - HITL-validated entries: "Information added by <contributor>"
+        # - Document chunks: the File metadata field
+        # - Anything else: generic "Information added by user"
+        if metadata.get('source') == 'hitl_validated':
+            contributor = metadata.get('original_contributor') or 'user'
+            source_doc_name = f"Information added by {contributor}"
+        else:
+            source_doc_name = metadata.get('File') or 'Information added by user'
         html.append(
             f'<p style="font-size:15px;margin:0.5rem 0 0.25rem 0;">'
             f'<span style="font-weight:700;">'
@@ -838,7 +867,7 @@ def _render_synth_qa_panel(*, sel_state_key: str, show_gap_ui: bool, header_labe
                     result['missing_info'],
                     num_text_docs=result['num_text_docs'],
                     num_image_docs=result['num_image_docs'],
-                    user_name=ss.get('user_name'),
+                    user_name=ss.get('full_name') or ss.get('user_name'),
                     model=model,
                 )
                 st.markdown(
@@ -888,7 +917,7 @@ def _render_synth_qa_panel(*, sel_state_key: str, show_gap_ui: bool, header_labe
             knowledge = st.text_area(
                 "Your knowledge",
                 height=120,
-                placeholder="What do you know about this? Be as specific as you can.",
+                placeholder="Do you have something to add?",
                 key=f"{sel_state_key}_gap_text_{sel_id}",
             )
             submitted = st.form_submit_button("Submit for review")
@@ -899,7 +928,7 @@ def _render_synth_qa_panel(*, sel_state_key: str, show_gap_ui: bool, header_labe
                             GAPS_DB_PATH,
                             gap_id_link,
                             knowledge.strip(),
-                            user_name=ss.get('user_name'),
+                            user_name=ss.get('full_name') or ss.get('user_name'),
                         )
                         if ok:
                             st.toast(f"Saved for review (gap #{gap_id_link})")
@@ -1207,7 +1236,12 @@ def show_chat_history():
                     all_users = [ss.user_name] + all_users
 
                 user_options = ["All Users"] + all_users
-                selected_user = st.selectbox("Filter by user", options=user_options, key="history_user_filter")
+                selected_user = st.selectbox(
+                    "Filter by user",
+                    options=user_options,
+                    key="history_user_filter",
+                    format_func=lambda u: u if u == "All Users" else _display_name_for(u),
+                )
 
                 # Search filter
                 search_text = st.text_input("Search history", key="history_search_super", placeholder="Type to filter...")
@@ -1235,7 +1269,7 @@ def show_chat_history():
                         continue
 
                     history_text_color = ss.get('__text_color', '#F5F5F5')
-                    st.markdown(f'<span style="color: {history_text_color}; font-size: 18px;">{user}</span>', unsafe_allow_html=True)
+                    st.markdown(f'<span style="color: {history_text_color}; font-size: 18px;">{_display_name_for(user)}</span>', unsafe_allow_html=True)
 
                     for chat_name, is_current in chats_to_display:
                         chat_question, datetime_and_user = split_user_chat_name(chat_name)
@@ -1384,6 +1418,9 @@ def process_user_prompt(status, answer_placeholder, embeddings, vdb, chroma_coll
         reranker_model = getattr(ss, 'reranker_model', None)
 
         validated_vdb = getattr(ss, 'validated_vdb', None)
+        # Drop manual chunks whose reranker score doesn't beat 0 (= clearly
+        # irrelevant). Stops "what is xtrak" from listing workflow chunks as
+        # sources when the actual answer comes from a validated entry.
         retrieved = retrieve(
             ss._user_prompt,
             embeddings=embeddings, vdb=vdb, image_vdb=image_vdb,
@@ -1391,6 +1428,7 @@ def process_user_prompt(status, answer_placeholder, embeddings, vdb, chroma_coll
             bm25_image_index=bm25_image_index, bm25_image_corpus_docs=bm25_image_corpus_docs,
             reranker_model=reranker_model,
             validated_vdb=validated_vdb,
+            manual_score_threshold=0.0,
         )
         text_docs = retrieved.text_docs
         image_docs = retrieved.image_docs
@@ -1401,24 +1439,18 @@ def process_user_prompt(status, answer_placeholder, embeddings, vdb, chroma_coll
         log_message("info", f"Document Retrieval total time:{elapsed_time}")
 
         stopwatch.start()
-        # If retrieval came back with ONLY a validated entry (strong-match
-        # override), feed the LLM a minimal, attribution-clean source_text
-        # instead of the manual-style concatenation. This keeps the answer
-        # focused on the expert-approved content and avoids quoting tangential
-        # manual snippets.
-        validated_only = (
-            bool(text_docs)
-            and not image_docs
-            and all(d.metadata.get('source') == 'hitl_validated' for d in text_docs)
-        )
-        if validated_only:
-            # Build one labeled block per validated doc so the LLM can see
-            # all approved answers and synthesize them. The "Question: ...
-            # Answer: ..." scaffolding from storage is stripped — the LLM
-            # echoes it verbatim otherwise instead of composing.
-            blocks = []
-            n = len(text_docs)
-            for idx, d in enumerate(text_docs, 1):
+        # Build source_text with validated docs ALWAYS in their own labeled
+        # [VALIDATED EXPERT KNOWLEDGE] blocks, even when mixed with manual
+        # chunks. The system_prompt's VALIDATED section then makes the LLM
+        # emit "Source: approved by NAMES" whenever validated content drives
+        # the answer — we use that downstream to filter displayed sources.
+        validated_text_docs = [d for d in text_docs if d.metadata.get('source') == 'hitl_validated']
+        manual_text_docs = [d for d in text_docs if d.metadata.get('source') != 'hitl_validated']
+
+        validated_blocks = []
+        if validated_text_docs:
+            n = len(validated_text_docs)
+            for idx, d in enumerate(validated_text_docs, 1):
                 reviewer = d.metadata.get('reviewer') or 'unknown reviewer'
                 reviewed_at = d.metadata.get('reviewed_at') or ''
                 raw = d.page_content
@@ -1430,12 +1462,21 @@ def process_user_prompt(status, answer_placeholder, embeddings, vdb, chroma_coll
                     f"[VALIDATED EXPERT KNOWLEDGE {idx}/{n}]" if n > 1
                     else "[VALIDATED EXPERT KNOWLEDGE]"
                 )
-                blocks.append(f"{header}\n{answer_only}\n[{approved_line}]")
-            source_text = "\n\n".join(blocks)
-        elif image_docs:
-            source_text = concatenate_docs_with_labels(text_docs, image_docs)
+                validated_blocks.append(f"{header}\n{answer_only}\n[{approved_line}]")
+
+        if image_docs:
+            manual_part = concatenate_docs_with_labels(manual_text_docs, image_docs)
+        elif manual_text_docs:
+            manual_part = concatenate_docs_page_contents(manual_text_docs)
         else:
-            source_text = concatenate_docs_page_contents(docs)
+            manual_part = ""
+
+        source_text_parts = []
+        if validated_blocks:
+            source_text_parts.append("\n\n".join(validated_blocks))
+        if manual_part:
+            source_text_parts.append(manual_part)
+        source_text = "\n\n---\n\n".join(source_text_parts) if source_text_parts else ""
 
         # Scrub the complex V6 alt attribute ONLY from <img> tags whose alt
         # starts with V6 markers ([CONTEXT:/[IMAGE:/[FOLLOWING:). Those alts
@@ -1566,6 +1607,25 @@ def process_user_prompt(status, answer_placeholder, embeddings, vdb, chroma_coll
         manage_chat_history(ss.chat_history, ss.__max_tokens_chat_history)
         elapsed_time = stopwatch.stop()
         log_message("info", f"Chat history management time:{elapsed_time}")
+
+        # Source-display filter:
+        # 1. If the LLM emitted "Source: approved by ..." (system_prompt
+        #    instructs this whenever VALIDATED EXPERT KNOWLEDGE drove the
+        #    answer), drop manual chunks — they didn't contribute.
+        # 2. Same for a clear "not enough info" refusal — manual didn't help.
+        # Normalize curly apostrophes (LLM frequently emits U+2019).
+        _ans_norm = (answer or "").lower().replace("’", "'")
+        _validated_signal = "source: approved by" in _ans_norm
+        _refusal_markers = (
+            "i don't have enough information",
+            "i do not have enough information",
+            "not enough information from billtrak",
+            "the billtrak documents do not",
+            "the billtrak documents don't",
+        )
+        _refusal_signal = any(m in _ans_norm for m in _refusal_markers)
+        if _validated_signal or _refusal_signal:
+            docs = [d for d in docs if d.metadata.get('source') == 'hitl_validated']
 
         stopwatch.start()
         bot_response = create_bot_response(answer, docs, ss.chat_history, ss._user_prompt)

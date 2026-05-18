@@ -220,22 +220,34 @@ try:
             log_message("error", f"Error displaying Q&A page: {e}")
             st.error(f"Could not display Q&A due to an unexpected error! Please try to reload the page: {e}")
 
-        # Inline gap-fill form: shown when the latest answer was flagged as a
-        # knowledge gap. Lets the asker contribute the missing knowledge on the
-        # spot for later HITL review and KB commit.
+        # Inline contribution form: shown after EVERY answer (not just gaps).
+        # When the answer was flagged as a gap, the copy nudges the user to
+        # fill in missing info. When not flagged, the copy invites
+        # corrections / additions. Either way the submission feeds the same
+        # HITL queue as gap contributions.
         try:
-            if ss.get('_latest_is_gap') and ss.get('_latest_gap_id'):
+            if ss.get('_latest_gap_id'):
                 gap_id = ss._latest_gap_id
+                is_gap = ss.get('_latest_is_gap', False)
                 with st.form(key=f"gap_input_form_{gap_id}", clear_on_submit=True):
-                    st.markdown(
-                        "**I couldn't fully answer that from the BillTrak documents.** "
-                        "If you know the answer, share it below and I'll save it for expert review."
-                    )
+                    if is_gap:
+                        st.markdown(
+                            "**I couldn't fully answer that from the BillTrak documents.** "
+                            "If you know the answer, share it below and I'll save it for expert review."
+                        )
+                        placeholder = "Do you have something to add?"
+                    else:
+                        st.markdown(
+                            "**Anything to add?** "
+                            "Share corrections, additional context, or related knowledge "
+                            "and I'll save it for expert review."
+                        )
+                        placeholder = "Add context, corrections, or related details. Leave blank if nothing to add."
                     user_knowledge = st.text_area(
                         "Your knowledge",
                         key=f"gap_input_text_{gap_id}",
                         height=120,
-                        placeholder="What do you know about this? Be as specific as you can.",
+                        placeholder=placeholder,
                     )
                     submitted = st.form_submit_button("Submit for review")
                     if submitted:
@@ -245,7 +257,7 @@ try:
                                     GAPS_DB_PATH,
                                     gap_id,
                                     user_knowledge.strip(),
-                                    user_name=getattr(ss, 'user_name', None),
+                                    user_name=ss.get('full_name') or ss.get('user_name'),
                                 )
                                 if ok:
                                     st.toast("Thanks! Saved for review.")

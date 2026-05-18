@@ -680,7 +680,15 @@ def format_bot_response(bot_response):
                     for doc in text_docs:
                         page_content, metadata = parse_document(doc)
                         if metadata:
-                            source_doc_name = metadata.get("File", "Information not available")
+                            # HITL-validated entries don't have a File field;
+                            # label them by the contributor instead so the
+                            # reviewer can tell user-added content apart from
+                            # document chunks.
+                            if metadata.get("source") == "hitl_validated":
+                                _contrib = metadata.get("original_contributor") or "user"
+                                source_doc_name = f"Information added by {_contrib}"
+                            else:
+                                source_doc_name = metadata.get("File") or "Information added by user"
                             page_content = convert_img_tags_to_embedded(page_content)
                             page_content = fix_malformed_angle_brackets(page_content)
 

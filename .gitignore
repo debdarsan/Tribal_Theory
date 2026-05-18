@@ -126,3 +126,6 @@ Chroma_VectorStore.broken_*/
 
 # Local pip freeze snapshots
 pip_freeze_*.txt
+
+# Local editor / tool settings
+**/*.local.json

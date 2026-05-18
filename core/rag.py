@@ -65,16 +65,13 @@ def retrieve(
     validated_vdb: Any = None,
     validated_top_k: int = 3,
     validated_score_threshold: float = 0.7,
+    manual_score_threshold: float | None = None,
 ) -> Retrieved:
-    # Probe the validated KB first. Return ALL validated entries that beat
-    # the threshold — multiple approved answers for similar questions should
-    # all surface so the LLM can synthesize them. Manual chunks are skipped
-    # entirely when at least one validated entry matches strongly.
+    # Probe validated KB AND manual corpus, then return both so the answer
+    # can draw from the original ingested docs as well as approved
+    # contributions. Validated hits land at the front of text_docs so the
+    # LLM treats them as primary context.
     validated_docs = _query_validated(query, validated_vdb, validated_top_k)
-    if validated_docs:
-        above = [d for d in validated_docs if d.metadata.get("retrieval_score", 0) >= validated_score_threshold]
-        if above:
-            return Retrieved(text_docs=above, image_docs=[])
 
     if image_vdb is not None:
         text_docs, image_docs = return_docs_from_both_collections_parallel(
@@ -99,8 +96,19 @@ def retrieve(
         )
         image_docs = []
 
-    # Lower-score validated hits get prepended as context but don't override
-    # the manual chunks — they're informative but not authoritative.
+    # Drop manual chunks below the relevance floor — irrelevant doc chunks
+    # would otherwise surface as "sources" for questions the manuals don't
+    # cover (e.g. asking about a topic only present in HITL-validated KB).
+    # The threshold is calibrated to cross-encoder scores; with no reranker,
+    # scores are cosine 0-1 and a lower floor is appropriate.
+    if manual_score_threshold is not None:
+        text_docs = [
+            d for d in text_docs
+            if d.metadata.get("retrieval_score", 0) > manual_score_threshold
+        ]
+
+    # Prepend validated hits so they appear first. Manual chunks remain
+    # IF they were relevant enough to survive the score filter above.
     if validated_docs:
         text_docs = validated_docs + text_docs
 
@@ -153,6 +161,7 @@ def answer_question(
     validated_vdb: Any = None,
     validated_top_k: int = 3,
     validated_score_threshold: float = 0.7,
+    manual_score_threshold: float | None = None,
     chat_history: Sequence[tuple[str, str]] = (),
     additional_information: str = "",
     content_summary: str = "",
@@ -173,6 +182,7 @@ def answer_question(
         validated_vdb=validated_vdb,
         validated_top_k=validated_top_k,
         validated_score_threshold=validated_score_threshold,
+        manual_score_threshold=manual_score_threshold,
     )
 
     formatter = source_text_formatter or _default_source_text
