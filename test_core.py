@@ -1108,5 +1108,103 @@ class TestSyntheticQuestionsDB(unittest.TestCase):
         self.assertEqual(len(list_synthetic_questions(self.db_path)), 0)
 
 
+class TestQuiz(unittest.TestCase):
+    def setUp(self):
+        import shutil
+        self._shutil = shutil
+        self.tmpdir = tempfile.mkdtemp(prefix="quiz_")
+        self.db_path = Path(self.tmpdir) / "qz.db"
+
+    def tearDown(self):
+        self._shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_split_validated_content_qa(self):
+        from core.quiz import _split_validated_content
+        q, a = _split_validated_content("Question: what is X?\nAnswer: X is foo.")
+        self.assertEqual(q, "what is X?")
+        self.assertEqual(a, "X is foo.")
+
+    def test_split_validated_content_no_question_prefix(self):
+        from core.quiz import _split_validated_content
+        q, a = _split_validated_content("what is X?\nAnswer: X is foo.")
+        # 'Question:' prefix optional — anything before 'Answer:' is the question
+        self.assertEqual(q, "what is X?")
+        self.assertEqual(a, "X is foo.")
+
+    def test_parse_grade_clean_json(self):
+        from core.quiz import _parse_grade
+        g = _parse_grade('{"is_correct": true, "feedback": "Matches the key fact."}')
+        self.assertTrue(g["is_correct"])
+        self.assertEqual(g["feedback"], "Matches the key fact.")
+
+    def test_parse_grade_with_prose(self):
+        from core.quiz import _parse_grade
+        g = _parse_grade('Here you go: {"is_correct": false, "feedback": "Missing X."}')
+        self.assertFalse(g["is_correct"])
+
+    def test_parse_grade_garbage(self):
+        from core.quiz import _parse_grade
+        g = _parse_grade("nope nothing here")
+        self.assertFalse(g["is_correct"])
+        self.assertIn("Could not interpret", g["feedback"])
+
+    def test_pick_next_question_excludes(self):
+        from core.quiz import pick_next_question
+        items = [
+            {"id": "a", "question": "q1", "canonical_answer": "a1"},
+            {"id": "b", "question": "q2", "canonical_answer": "a2"},
+        ]
+        pick = pick_next_question(items, exclude_ids={"a"})
+        self.assertEqual(pick["id"], "b")
+
+    def test_pick_next_question_returns_none_when_all_seen(self):
+        from core.quiz import pick_next_question
+        items = [{"id": "a", "question": "q1", "canonical_answer": "a1"}]
+        self.assertIsNone(pick_next_question(items, exclude_ids={"a"}))
+
+    def test_record_attempt_and_stats(self):
+        from core.quiz import get_user_stats, record_attempt
+        record_attempt(self.db_path, user_name="u1", kb_doc_id="d1",
+                       question_text="Q", canonical_answer="A",
+                       user_answer="A close enough", is_correct=True,
+                       llm_feedback="ok")
+        record_attempt(self.db_path, user_name="u1", kb_doc_id="d2",
+                       question_text="Q2", canonical_answer="A2",
+                       user_answer="wrong", is_correct=False,
+                       llm_feedback="missed")
+        stats = get_user_stats(self.db_path, "u1")
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["correct"], 1)
+        self.assertAlmostEqual(stats["accuracy"], 0.5)
+
+    def test_user_stats_no_attempts(self):
+        from core.quiz import get_user_stats
+        stats = get_user_stats(self.db_path, "noone")
+        self.assertEqual(stats["total"], 0)
+        self.assertIsNone(stats["accuracy"])
+
+    def test_list_synth_quiz_items_filters_to_answered(self):
+        from core.question_generation import save_question_answer, save_questions
+        from core.quiz import list_synth_quiz_items
+        # Two synth questions, only one has an answer cached
+        save_questions(self.db_path, 0, [{"type": "factoid", "text": "Q1?"}], ["c1"])
+        save_questions(self.db_path, 0, [{"type": "conceptual", "text": "Q2?"}], ["c2"])
+        rows = sqlite3.connect(str(self.db_path)).execute(
+            "SELECT id, text FROM synthetic_questions ORDER BY id"
+        ).fetchall()
+        save_question_answer(self.db_path, rows[0][0], "A1", 0.9, None)
+        items = list_synth_quiz_items(self.db_path)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["question"], "Q1?")
+        self.assertEqual(items[0]["canonical_answer"], "A1")
+        self.assertTrue(items[0]["id"].startswith("synth_"))
+
+    def test_list_synth_quiz_items_empty_db(self):
+        from core.quiz import list_synth_quiz_items
+        # Empty DB (no synthetic_questions table) → empty list, no crash
+        items = list_synth_quiz_items(self.db_path)
+        self.assertEqual(items, [])
+
+
 if __name__ == "__main__":
     unittest.main()

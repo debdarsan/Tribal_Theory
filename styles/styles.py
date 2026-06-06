@@ -478,9 +478,29 @@ def apply_dynamic_colors() -> None:
     }}
 
     /* ===== INPUT ===== */
-    [data-testid="stTextInput"] input {{
-        background-color: {question_textbox} !important;
-        color: {text_color} !important;
+    [data-testid="stTextInput"] input,
+    [data-testid="stTextArea"] textarea,
+    [data-testid="stTextArea"] div[data-baseweb="textarea"],
+    [data-testid="stTextArea"] div[data-baseweb="base-input"] {{
+        background-color: #ffffff !important;
+        color: #1a1a2e !important;
+    }}
+    /* Thin dark-red outline on text-input controls (the BaseWeb wrapper holds
+       the border; some inputs render with no visible outline otherwise). */
+    [data-testid="stTextInput"] div[data-baseweb="input"],
+    [data-testid="stTextInput"] div[data-baseweb="base-input"] {{
+        border: 1px solid darkred !important;
+        border-radius: 6px !important;
+    }}
+    /* Let text areas grow with their content so the white box ELONGATES as
+       text is typed/pasted, instead of scrolling inside a fixed height.
+       field-sizing:content is supported in modern Chrome; height:auto
+       overrides Streamlit's inline fixed height. */
+    [data-testid="stTextArea"] textarea {{
+        field-sizing: content !important;
+        height: auto !important;
+        min-height: 120px !important;
+        max-height: 70vh !important;
     }}
 
     /* ===== CHAT ===== */
@@ -520,6 +540,22 @@ def apply_dynamic_colors() -> None:
         border-radius: 8px !important;
     }}
 
+    /* Restore normal sizing for form-submit buttons — the global
+       div.stButton > button rule from define_custom_button() collapses
+       them to font-size:5px / min-height:8px (suitable for the tiny
+       chat-history list buttons in the sidebar but invisible in form
+       contexts). Higher specificity beats that. */
+    [data-testid="stFormSubmitButton"] button,
+    [data-testid="stForm"] [data-testid="stFormSubmitButton"] button,
+    div[data-testid="stFormSubmitButton"] > button {{
+        font-size: 14px !important;
+        min-height: 36px !important;
+        padding: 0.4rem 0.9rem !important;
+        text-align: center !important;
+        justify-content: center !important;
+        border: 1px solid {button_label_color} !important;
+    }}
+
     /* ===== BUTTON HOVER ===== */
     div.stButton > button:hover,
     [data-testid="stSidebar"] button:hover,
@@ -547,10 +583,13 @@ def apply_dynamic_colors() -> None:
         color: #FFFFFF !important;
     }}
     
-    [data-testid="stTextInput"] input {{
-        background-color: {question_textbox} !important;
-        color: {text_color} !important;
-        caret-color: {text_color} !important;
+    [data-testid="stTextInput"] input,
+    [data-testid="stTextArea"] textarea,
+    [data-testid="stTextArea"] div[data-baseweb="textarea"],
+    [data-testid="stTextArea"] div[data-baseweb="base-input"] {{
+        background-color: #ffffff !important;
+        color: #1a1a2e !important;
+        caret-color: #1a1a2e !important;
     }}
 
     /* ===== EXPANDER BUTTON FIX ===== */

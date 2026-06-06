@@ -309,6 +309,246 @@ def show_color_settings():
                 ss._pending_theme = 'light'
                 st.rerun()
 
+def show_quiz_sidebar():
+    """Sidebar Quiz expander — for any signed-in user. Tests on the
+    HITL-validated knowledge. Clicking Start picks a random question and
+    surfaces it in the main area; subsequent grades + Next questions cycle
+    through the validated pool until the user ends the quiz."""
+    from core.quiz import get_user_stats, list_quiz_items, pick_next_question
+
+    user_name = ss.get('full_name') or ss.get('user_name') or 'unknown'
+    user_key = ss.get('user_name') or user_name  # storage key uses user_id
+
+    try:
+        stats = get_user_stats(GAPS_DB_PATH, user_key)
+    except Exception as e:
+        log_message('error', f"quiz stats lookup failed: {e}")
+        stats = {"total": 0, "correct": 0, "accuracy": None}
+
+    with st.expander("Quiz", expanded=False):
+        if stats["total"]:
+            acc_pct = (stats["accuracy"] or 0) * 100
+            st.markdown(
+                f'<p style="color:#9aa0a6;font-size:0.85em;margin:0.25rem 0;">'
+                f'Lifetime: {stats["correct"]} / {stats["total"]} '
+                f'({acc_pct:.0f}%)</p>',
+                unsafe_allow_html=True,
+            )
+
+        active = ss.get('_quiz_active', False)
+        if not active:
+            if st.button("Start quiz", key="quiz_start", use_container_width=True):
+                # Quiz pool = synthetic_questions generated from the vectorstore
+                # (via Auto Q&A / Gap Finder). Each row already has a cached
+                # answer that we grade against.
+                items = list_quiz_items(GAPS_DB_PATH)
+                if not items:
+                    st.warning(
+                        "No quiz questions yet. Open the **Auto Q&A** "
+                        "(or Knowledge Gap Finder) expander and click "
+                        "Generate question a few times to build a pool."
+                    )
+                else:
+                    close_all_main_panels()
+                    ss._quiz_active = True
+                    ss._quiz_items = items
+                    ss._quiz_seen_ids = set()
+                    ss._quiz_session_score = (0, 0)
+                    ss._quiz_last_result = None
+                    pick = pick_next_question(items)
+                    ss._quiz_current = pick
+                    st.rerun()
+        else:
+            session_correct, session_total = ss.get('_quiz_session_score', (0, 0))
+            st.markdown(
+                f'<p style="color:#9aa0a6;font-size:0.85em;margin:0.25rem 0;">'
+                f'This session: {session_correct} / {session_total}</p>',
+                unsafe_allow_html=True,
+            )
+            if st.button("End quiz", key="quiz_end", use_container_width=True):
+                ss._quiz_active = False
+                ss._quiz_current = None
+                ss._quiz_last_result = None
+                st.rerun()
+
+
+def show_quiz_main() -> bool:
+    """Render the quiz question + grading + Next-question loop in the main
+    area while a quiz session is active. Returns True if rendered."""
+    if not ss.get('_quiz_active'):
+        return False
+    _, _quiz_close_col = st.columns([6, 1])
+    with _quiz_close_col:
+        if st.button("Close", key="quiz_main_close", use_container_width=True):
+            close_all_main_panels()
+            st.rerun()
+    current = ss.get('_quiz_current')
+    if not current:
+        # All questions seen — show summary
+        sc, st_ = ss.get('_quiz_session_score', (0, 0))
+        st.markdown(
+            f'<div class="synth-panel-text" style="background-color:{ss.get("__expander_color", "#DFE2E2")};'
+            f'padding:0.75rem 1rem;border-radius:6px;margin:0.5rem 0;">'
+            f'<h3 style="margin:0;">Quiz complete</h3>'
+            f'<p>You scored {sc} / {st_} this session.</p>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("Restart quiz", key="quiz_restart"):
+            ss._quiz_seen_ids = set()
+            ss._quiz_session_score = (0, 0)
+            ss._quiz_last_result = None
+            from core.quiz import pick_next_question
+            ss._quiz_current = pick_next_question(ss.get('_quiz_items') or [])
+            st.rerun()
+        return True
+
+    from core.quiz import generate_mcq_options, pick_next_question, record_attempt
+
+    panel_bg = ss.get('__expander_color', '#DFE2E2')
+
+    # Force dark text on the radio answer choices — the app's theme text color is
+    # light, so without this the options render white-on-light (invisible).
+    st.markdown(
+        """
+        <style>
+        [data-testid="stRadio"] label,
+        [data-testid="stRadio"] label p,
+        [data-testid="stRadio"] label div {
+            color: #1a1a2e !important;
+            -webkit-text-fill-color: #1a1a2e !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f'<div class="synth-panel-text" style="background-color:{panel_bg};'
+        f'padding:0.5rem 0.75rem;border-radius:6px 6px 0 0;">'
+        f'<h3 style="margin:0;">Quiz</h3>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div class="synth-panel-text" style="background-color:{panel_bg};'
+        f'padding:0.75rem 1rem;border-radius:0 0 6px 6px;margin:0 0 0.5rem 0;">'
+        f'<strong>Q:</strong> {current["question"]}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    last = ss.get('_quiz_last_result')
+    if last is not None:
+        # Show grading result + Next-question button
+        ok = last.get('is_correct')
+        banner_bg = "#10b981" if ok else "#ef4444"
+        verdict = "Correct" if ok else "Incorrect"
+        st.markdown(
+            f'<div style="background-color:{banner_bg};color:#ffffff;'
+            f'padding:0.5rem 0.9rem;border-radius:6px;margin:0.5rem 0;">'
+            f'<strong>{verdict}.</strong> {last.get("feedback") or ""}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        if not ok:
+            st.markdown(
+                f'<div class="synth-panel-text" style="background-color:{panel_bg};'
+                f'padding:0.5rem 0.75rem;border-radius:6px;margin:0.5rem 0;">'
+                f'<strong>Canonical answer:</strong> {current["canonical_answer"]}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        if st.button("Next question", key="quiz_next", type="primary", use_container_width=True):
+            seen = ss.get('_quiz_seen_ids', set())
+            seen.add(current["id"])
+            ss._quiz_seen_ids = seen
+            ss._quiz_last_result = None
+            ss._quiz_current = pick_next_question(ss.get('_quiz_items') or [], exclude_ids=seen)
+            st.rerun()
+    else:
+        # Build multiple-choice options once per question (cached on the item).
+        if not current.get('options'):
+            client = ss.get('qa_model')
+            model = ss.get('__qa_model_name')
+            if not client or not model:
+                st.error("LLM client not initialized.")
+                st.markdown("---")
+                return True
+            with st.spinner("Preparing choices…"):
+                try:
+                    mcq = generate_mcq_options(
+                        client=client, model=model,
+                        question=current["question"],
+                        correct_answer=current["canonical_answer"],
+                    )
+                except Exception as e:
+                    log_message('error', f"MCQ generation failed: {e}")
+                    mcq = {"options": [current["canonical_answer"]], "correct_index": 0}
+            current['options'] = mcq['options']
+            current['correct_index'] = mcq['correct_index']
+            ss._quiz_current = current
+
+        with st.form(key=f"quiz_form_{current['id']}", clear_on_submit=False):
+            choice = st.radio(
+                "Choose the correct answer",
+                current['options'],
+                index=None,
+                key=f"quiz_choice_{current['id']}",
+            )
+            btn_submit_col, btn_next_col = st.columns(2)
+            with btn_submit_col:
+                submitted = st.form_submit_button("Submit answer", type="primary", use_container_width=True)
+            with btn_next_col:
+                skipped = st.form_submit_button("Next", use_container_width=True)
+            if skipped and not submitted:
+                # Skip without recording — just advance to a new question.
+                seen = ss.get('_quiz_seen_ids', set())
+                seen.add(current["id"])
+                ss._quiz_seen_ids = seen
+                ss._quiz_last_result = None
+                ss._quiz_current = pick_next_question(
+                    ss.get('_quiz_items') or [], exclude_ids=seen
+                )
+                st.rerun()
+            if submitted:
+                if choice is None:
+                    # Explicit dark text — st.warning renders white-on-light on
+                    # this theme (see CLAUDE.md "Active gotchas").
+                    st.markdown(
+                        '<div style="background-color:#f59e0b;color:#1a1a1a;'
+                        'padding:0.5rem 0.9rem;border-radius:6px;margin:0.5rem 0;">'
+                        '⚠️ Please select an option before submitting.'
+                        '</div>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    is_correct = current['options'].index(choice) == current.get('correct_index')
+                    try:
+                        record_attempt(
+                            GAPS_DB_PATH,
+                            user_name=ss.get('user_name') or 'unknown',
+                            kb_doc_id=current.get("id"),
+                            question_text=current["question"],
+                            canonical_answer=current["canonical_answer"],
+                            user_answer=choice,
+                            is_correct=is_correct,
+                            llm_feedback=None,
+                        )
+                    except Exception as e:
+                        log_message('error', f"quiz record_attempt failed: {e}")
+                    sc, total = ss.get('_quiz_session_score', (0, 0))
+                    ss._quiz_session_score = (sc + (1 if is_correct else 0), total + 1)
+                    ss._quiz_last_result = {
+                        "is_correct": is_correct,
+                        "feedback": "Correct choice." if is_correct else "That's not the right option.",
+                    }
+                    st.rerun()
+
+    st.markdown("---")
+    return True
+
+
 def _display_name_for(user_id) -> str:
     """Map a user_id (like 'dn') to its Full Name from users.xlsx. Cached
     in session state on first call. Falls back to the raw id if not found."""
@@ -324,6 +564,158 @@ def _display_name_for(user_id) -> str:
     return cache.get(str(user_id), str(user_id))
 
 
+def _list_superusers() -> list[dict]:
+    """Return [{'user_id', 'full_name'}] for every superuser in users.xlsx,
+    sorted by full name. Cached per session."""
+    cache = ss.get('_superusers_cache')
+    if cache is None:
+        cache = []
+        try:
+            import pandas as pd
+            df = pd.read_excel('users.xlsx')
+            supers = df[df['Role'].astype(str).str.strip().str.lower() == 'superuser']
+            cache = [
+                {'user_id': str(uid), 'full_name': str(fn)}
+                for uid, fn in zip(supers['User ID'], supers['Full Name'])
+            ]
+            cache.sort(key=lambda r: r['full_name'].lower())
+        except Exception as e:
+            log_message('error', f"_list_superusers failed: {e}")
+            cache = []
+        ss._superusers_cache = cache
+    return cache
+
+
+def notify_assignee_via_outlook(*, assignee_user_id: str, gap_id, submitter_name: str,
+                                question: str, contribution: str):
+    """Stage an Outlook notification e-mail for the assigned reviewer. The actual
+    send is gated behind a 'Send email?' confirmation dialog (see
+    maybe_confirm_pending_email / _email_confirm_dialog) — this only stashes the
+    request in session state; the caller's st.rerun() then pops the dialog. Reads
+    the reviewer's e-mail from users.xlsx; if none is on file, warns and stages
+    nothing. Never raises — must not block the already-saved assignment."""
+    try:
+        from core.email_notify import lookup_email
+        email = lookup_email(assignee_user_id, "users.xlsx")
+        if not email:
+            st.warning(
+                f"Assignment saved, but no e-mail is on file for "
+                f"'{assignee_user_id}' — no notification."
+            )
+            return
+        ss._pending_email_confirm = {
+            "assignee_user_id": assignee_user_id,
+            "email": email,
+            "reviewer_name": _display_name_for(assignee_user_id),
+            "submitter_name": submitter_name or "a user",
+            "question": question or "",
+            "contribution": contribution or "",
+            "gap_id": gap_id,
+        }
+    except Exception as e:
+        log_message('error', f"notify_assignee_via_outlook staging failed: {e}")
+
+
+@st.experimental_dialog("Send email?")
+def _email_confirm_dialog():
+    """Modal asking the assigner to confirm sending the notification e-mail.
+    Reads the staged request from ss._pending_email_confirm. Yes → send via
+    Outlook; No → skip. Either way clears the pending state and reruns."""
+    info = ss.get('_pending_email_confirm') or {}
+    st.markdown(
+        f"<div style='color:#1a1a2e;'>Send a notification e-mail to "
+        f"<strong>{info.get('reviewer_name', '')}</strong> "
+        f"(<code>{info.get('email', '')}</code>) about this assigned Q&amp;A?</div>",
+        unsafe_allow_html=True,
+    )
+    c_yes, c_no = st.columns(2)
+    with c_yes:
+        if st.button("Yes, send", type="primary", use_container_width=True,
+                     key="_email_confirm_yes"):
+            try:
+                from core.email_notify import notify_assignment
+                ok, msg = notify_assignment(
+                    assignee_user_id=info.get('assignee_user_id'),
+                    reviewer_name=info.get('reviewer_name', ''),
+                    submitter_name=info.get('submitter_name', ''),
+                    question=info.get('question', ''),
+                    contribution=info.get('contribution', ''),
+                    gap_id=info.get('gap_id'),
+                    users_xlsx_path="users.xlsx",
+                )
+                st.toast(msg if ok else f"E-mail not sent: {msg}")
+            except Exception as e:
+                log_message('error', f"_email_confirm_dialog send failed: {e}")
+                st.toast(f"E-mail not sent: {e}")
+            ss._pending_email_confirm = None
+            st.rerun()
+    with c_no:
+        if st.button("No", use_container_width=True, key="_email_confirm_no"):
+            ss._pending_email_confirm = None
+            st.toast("Notification e-mail not sent.")
+            st.rerun()
+
+
+def maybe_confirm_pending_email():
+    """If an assignment staged a pending e-mail, pop the 'Send email?' dialog.
+    Call once per run from the main app body so it works regardless of which
+    panel is open. No-op when nothing is staged."""
+    if ss.get('_pending_email_confirm'):
+        _email_confirm_dialog()
+
+
+def render_approver_selectbox(form_key: str):
+    """Render a required 'assign approver' selectbox inside a contribution
+    form. Returns the selected superuser's User ID, or None if unselected /
+    no superusers exist. The caller validates non-None before saving."""
+    supers = _list_superusers()
+    if not supers:
+        st.warning("No superusers are configured to review submissions.")
+        return None
+    PLACEHOLDER = "— Select an approver —"
+    labels = [PLACEHOLDER] + [f"{s['full_name']} ({s['user_id']})" for s in supers]
+    choice = st.selectbox(
+        "Assign to approver (required)",
+        labels,
+        key=f"{form_key}_approver",
+    )
+    if choice == PLACEHOLDER:
+        return None
+    return supers[labels.index(choice) - 1]['user_id']
+
+
+# --- Main-area panel switching -------------------------------------------
+# The main area shows EITHER the default Q&A/chat screen OR exactly one panel
+# (HITL review, Manage Knowledge, Auto Q&A, Gap Finder, Quiz). Opening a panel
+# hides the chat input, New button, Q&A history and any other panel; each panel
+# has a Close button that calls close_all_main_panels() to restore the Q&A view.
+_MAIN_PANEL_FLAGS = (
+    "_hitl_selected_id", "_kb_manager_open",
+    "_selected_auto_qa_q_id", "_selected_gap_finder_q_id", "_quiz_active",
+)
+
+
+def active_main_panel():
+    """Return the session-state key of the open main-area panel, or None when
+    the default Q&A/chat screen should be shown."""
+    for flag in _MAIN_PANEL_FLAGS:
+        if ss.get(flag):
+            return flag
+    return None
+
+
+def close_all_main_panels():
+    """Clear every main-area panel so the Q&A/chat screen is restored. Called
+    when opening a panel (mutual exclusivity) and by each panel's Close button."""
+    ss._hitl_selected_id = None
+    ss._kb_manager_open = False
+    ss._selected_auto_qa_q_id = None
+    ss._selected_gap_finder_q_id = None
+    ss._quiz_active = False
+    ss._quiz_current = None
+    ss._quiz_last_result = None
+
+
 def show_hitl_review_sidebar():
     """Sidebar HITL queue: clickable list. Clicking a row sets the selected
     gap_id in session state; show_hitl_review_main() then renders the full
@@ -334,7 +726,8 @@ def show_hitl_review_sidebar():
     from core.gap_detection import list_pending_reviews
 
     try:
-        pending = list_pending_reviews(GAPS_DB_PATH)
+        # Only items the submitter assigned to THIS superuser appear here.
+        pending = list_pending_reviews(GAPS_DB_PATH, assigned_to=ss.get('user_name'))
     except Exception as e:
         log_message('error', f"HITL sidebar list_pending failed: {e}")
         return
@@ -357,6 +750,7 @@ def show_hitl_review_sidebar():
                 help=help_text,
                 use_container_width=True,
             ):
+                close_all_main_panels()
                 ss._hitl_selected_id = gap_id
                 st.rerun()
 
@@ -386,7 +780,7 @@ def show_hitl_review_main() -> bool:
         """
         <style>
         div[data-testid="stTextArea"] textarea,
-        div[data-testid="stTextInput"] input { color: #f5f5f5 !important; background-color: #2a2a2a !important; }
+        div[data-testid="stTextInput"] input { color: #1a1a2e !important; background-color: #ffffff !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -500,19 +894,337 @@ def show_hitl_review_main() -> bool:
     return True
 
 
+def show_kb_manager_sidebar():
+    """Sidebar entry point for the injected-knowledge manager. Superuser-only.
+    Clicking 'Open' sets a session flag; show_kb_manager_main() renders the
+    list + search + edit/delete UI in the main area."""
+    if ss.get('role') != 'superuser':
+        return
+
+    vstore = ss.get('validated_vdb')
+    try:
+        count = vstore._collection.count() if vstore is not None else 0
+    except Exception:
+        count = 0
+
+    label = f"Manage Knowledge ({count})" if count else "Manage Knowledge"
+    with st.expander(label, expanded=False):
+        st.caption("Edit or delete expert-approved knowledge already in the KB.")
+        if st.button("Open knowledge manager", key="kb_mgr_open", use_container_width=True):
+            close_all_main_panels()
+            ss._kb_manager_open = True
+            st.rerun()
+
+
+def show_kb_manager_main() -> bool:
+    """Main-area panel listing every injected (validated) knowledge entry with
+    a search bar; each entry is editable (re-embeds on save) and deletable.
+    Superuser-only. Returns True if a panel was rendered."""
+    if not ss.get('_kb_manager_open') or ss.get('role') != 'superuser':
+        return False
+
+    from core.gap_detection import (
+        list_validated_entries,
+        update_validated_entry,
+        delete_validated_entry,
+    )
+
+    vstore = ss.get('validated_vdb')
+    if vstore is None:
+        st.warning("Validated knowledge collection is not available.")
+        return True
+
+    # White text boxes with dark text. Buttons are intentionally left to the
+    # app's natural style (apply_dynamic_colors) so Save/Delete/Close match the
+    # white, bordered chat-history buttons. The Save/Delete buttons render
+    # because app.py no longer hides every form-submit button off-screen.
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stTextArea"] textarea,
+        div[data-testid="stTextInput"] input {
+            color: #1a1a2e !important;
+            background-color: #ffffff !important;
+            -webkit-text-fill-color: #1a1a2e !important;
+        }
+        /* Field labels ("Question" / "Answer") inherit the light theme text
+           color and render white-on-light; force them dark so they're visible
+           inside the View / edit expander. */
+        div[data-testid="stTextArea"] label,
+        div[data-testid="stTextArea"] label p,
+        div[data-testid="stTextInput"] label,
+        div[data-testid="stTextInput"] label p,
+        div[data-testid="stWidgetLabel"],
+        div[data-testid="stWidgetLabel"] p {
+            color: #1a1a2e !important;
+            -webkit-text-fill-color: #1a1a2e !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    text_color = ss.get('__text_color', '#f5f5f5')
+    muted_color = '#9aa0a6'
+
+    header_col, close_col = st.columns([6, 1])
+    with header_col:
+        st.markdown(
+            f'<h3 style="color:{text_color};margin-bottom:0.25rem;">Manage Injected Knowledge</h3>',
+            unsafe_allow_html=True,
+        )
+    with close_col:
+        if st.button("Close", key="kb_mgr_close", use_container_width=True):
+            ss._kb_manager_open = False
+            st.rerun()
+
+    search = st.text_input(
+        "Search knowledge",
+        key="kb_mgr_search",
+        placeholder="Filter by words in the question or answer.",
+    )
+
+    try:
+        entries = list_validated_entries(vstore, search=search or None)
+    except Exception as e:
+        log_message('error', f"KB manager list failed: {e}")
+        st.error(f"Could not load knowledge entries: {e}")
+        return True
+
+    if not entries:
+        st.markdown(
+            f'<p style="color:{muted_color};">'
+            + ("No entries match your search." if search else "No injected knowledge yet.")
+            + '</p>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("---")
+        return True
+
+    # --- Pagination -------------------------------------------------------
+    PAGE_SIZE = 3
+    total = len(entries)
+    total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+
+    # Reset to page 1 whenever the search filter changes, so we never land on a
+    # now-empty page.
+    if ss.get('_kb_mgr_last_search') != (search or ''):
+        ss._kb_mgr_page = 0
+        ss._kb_mgr_last_search = search or ''
+    page = max(0, min(ss.get('_kb_mgr_page', 0), total_pages - 1))
+    ss._kb_mgr_page = page
+
+    start = page * PAGE_SIZE
+    end = min(start + PAGE_SIZE, total)
+    page_entries = entries[start:end]
+
+    st.markdown(
+        f'<p style="color:{muted_color};font-size:0.85em;">'
+        f'Showing {start + 1}–{end} of {total} entr'
+        f'{"y" if total == 1 else "ies"} · page {page + 1} of {total_pages}.</p>',
+        unsafe_allow_html=True,
+    )
+
+    for e in page_entries:
+        doc_id = e['id']
+        meta = e['metadata']
+        title = e['question'] or '(no question)'
+        title_short = title if len(title) <= 55 else title[:55] + '…'
+        contributor = meta.get('original_contributor') or '?'
+        reviewer = meta.get('reviewer') or '?'
+
+        # Each entry is its own form so Save/Delete submit independently. The
+        # question title sits on an always-visible row; the editable fields AND
+        # the Save/Delete buttons live inside the View / edit expander.
+        with st.form(key=f"kb_mgr_form_{doc_id}", clear_on_submit=False):
+            st.markdown(
+                f'<p style="color:{text_color};margin:0.45rem 0;font-weight:600;">'
+                f'{title_short}</p>',
+                unsafe_allow_html=True,
+            )
+
+            with st.expander("View / edit", expanded=False):
+                st.markdown(
+                    f'<p style="color:{muted_color};font-size:0.8em;margin:0;">'
+                    f'id `{doc_id}` · contributed by {contributor} · approved by {reviewer}</p>',
+                    unsafe_allow_html=True,
+                )
+                q_edit = st.text_input(
+                    "Question", value=e['question'], key=f"kb_mgr_q_{doc_id}",
+                )
+                a_edit = st.text_area(
+                    "Answer", value=e['answer'], height=160, key=f"kb_mgr_a_{doc_id}",
+                )
+                save_col, del_col = st.columns(2)
+                with save_col:
+                    save = st.form_submit_button("Save", type="primary", use_container_width=True)
+                with del_col:
+                    delete = st.form_submit_button("Delete", use_container_width=True)
+
+            if save:
+                if not a_edit.strip():
+                    st.warning("Answer cannot be empty.")
+                else:
+                    try:
+                        update_validated_entry(
+                            vstore,
+                            doc_id=doc_id,
+                            new_answer=a_edit.strip(),
+                            new_question=q_edit.strip() or None,
+                            db_path=GAPS_DB_PATH,
+                        )
+                        st.toast(f"Updated {doc_id}")
+                        st.rerun()
+                    except Exception as ex:
+                        log_message('error', f"KB manager update failed: {ex}")
+                        st.error(f"Update failed: {ex}")
+            if delete:
+                try:
+                    delete_validated_entry(vstore, doc_id=doc_id, db_path=GAPS_DB_PATH)
+                    st.toast(f"Deleted {doc_id}")
+                    st.rerun()
+                except Exception as ex:
+                    log_message('error', f"KB manager delete failed: {ex}")
+                    st.error(f"Delete failed: {ex}")
+
+    # Pagination controls at the bottom (below the entry list).
+    if total_pages > 1:
+        prev_col, _spacer, next_col = st.columns([1, 2, 1])
+        with prev_col:
+            if st.button("◀ Prev", key="kb_mgr_prev_bot", disabled=(page <= 0),
+                         use_container_width=True):
+                ss._kb_mgr_page = page - 1
+                st.rerun()
+        with next_col:
+            if st.button("Next ▶", key="kb_mgr_next_bot", disabled=(page >= total_pages - 1),
+                         use_container_width=True):
+                ss._kb_mgr_page = page + 1
+                st.rerun()
+
+    st.markdown("---")
+    return True
+
+
 def _inject_sidebar_input_css():
     st.markdown(
         """
         <style>
         [data-testid="stSidebar"] div[data-testid="stTextInput"] input,
         [data-testid="stSidebar"] div[data-testid="stTextArea"] textarea {
-            color: #f5f5f5 !important;
-            background-color: #2a2a2a !important;
+            color: #1a1a2e !important;
+            background-color: #ffffff !important;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
+
+def _generate_and_answer_synth_q(*, purpose: str, sel_state_key: str, topic: str):
+    """Generate ONE synthetic question for `purpose`, compute + persist its
+    answer, open it as the active main panel, and rerun. Shared by the sidebar
+    'Generate question' button and each panel's 'Next' button so both paths
+    behave identically. Reads client/model/vdb/embeddings from session state."""
+    from core.question_generation import (
+        PURPOSE_DEMO,
+        answer_synthetic_question,
+        answer_with_source,
+        generate_one_question_for_topic,
+        save_answer_and_record_gap,
+        save_question_answer,
+    )
+    from utils.bida_prompt_utils import content_summary, system_prompt
+
+    client = ss.get('qa_model')
+    model = ss.get('__qa_model_name')
+    vdb = ss.get('vectorstore_obj')
+    embeddings = ss.get('embeddings')
+    if not all([client, model, vdb, embeddings]):
+        st.error("App not initialized — open the main chat once first.")
+        return
+
+    with st.spinner("Generating question…"):
+        try:
+            qresult = generate_one_question_for_topic(
+                client=client, model=model, vdb=vdb,
+                db_path=GAPS_DB_PATH,
+                topic=(topic or "").strip(),
+                purpose=purpose,
+            )
+        except Exception as e:
+            log_message('error', f"single question gen failed ({purpose}): {e}")
+            st.error(f"Generation failed: {e}")
+            qresult = None
+
+    if qresult and not qresult["in_scope"]:
+        st.markdown(
+            f'<div style="background-color:#f59e0b;color:#1a1a1a;'
+            f'padding:0.5rem 0.9rem;border-radius:6px;margin:0.5rem 0;">'
+            f'⚠️ {qresult["reason"]}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    elif qresult and qresult.get("question_id"):
+        qid = qresult["question_id"]
+        with st.spinner("Answering…"):
+            try:
+                import json as _json
+                if purpose == PURPOSE_DEMO and qresult.get("source_chunk_content"):
+                    # Auto Q&A: answer DIRECTLY from the source chunk.
+                    ar = answer_with_source(
+                        client=client, model=model,
+                        question_text=qresult["question_text"],
+                        source_text=qresult["source_chunk_content"],
+                        system_prompt_template=system_prompt,
+                        content_summary=content_summary,
+                        max_tokens=ss.get('__max_tokens', 2000),
+                        temperature=ss.get('__temperature', 0.2),
+                    )
+                    # Persist the source chunk so the panel can render
+                    # it under the answer (matching the chat UX).
+                    src_docs_json = _json.dumps([{
+                        "page_content": qresult["source_chunk_content"],
+                        "metadata": qresult.get("source_chunk_metadata") or {},
+                    }])
+                    save_question_answer(
+                        GAPS_DB_PATH, qid,
+                        ar['answer'], ar['confidence'], ar['missing_info'],
+                        num_text_docs=ar['num_text_docs'],
+                        num_image_docs=ar['num_image_docs'],
+                        source_docs_json=src_docs_json,
+                    )
+                else:
+                    # Gap Finder (or topic-targeted): full retrieval.
+                    ar = answer_synthetic_question(
+                        client=client, model=model,
+                        embeddings=embeddings, vdb=vdb,
+                        validated_vdb=ss.get('validated_vdb'),
+                        bm25_index=ss.get('bm25_index'),
+                        bm25_corpus_docs=ss.get('bm25_corpus_docs'),
+                        reranker_model=ss.get('reranker_model'),
+                        system_prompt_template=system_prompt,
+                        content_summary=content_summary,
+                        question_text=qresult["question_text"],
+                        max_tokens=ss.get('__max_tokens', 2000),
+                        temperature=ss.get('__temperature', 0.2),
+                    )
+                    src_docs_json = _json.dumps(ar.get('source_docs') or [])
+                    save_answer_and_record_gap(
+                        GAPS_DB_PATH, qid,
+                        ar['answer'], ar['confidence'], ar['missing_info'],
+                        num_text_docs=ar['num_text_docs'],
+                        num_image_docs=ar['num_image_docs'],
+                        user_name=ss.get('full_name') or ss.get('user_name'),
+                        model=model,
+                        source_docs_json=src_docs_json,
+                    )
+            except Exception as e:
+                log_message('error', f"auto-answer failed ({purpose}): {e}")
+                st.error(f"Answer step failed: {e}")
+        close_all_main_panels()
+        ss[sel_state_key] = qid
+        st.rerun()
+    elif qresult and qresult.get("reason"):
+        st.warning(qresult["reason"])
 
 
 def _synth_qa_generate_and_answer(*, purpose: str, sel_state_key: str,
@@ -547,88 +1259,9 @@ def _synth_qa_generate_and_answer(*, purpose: str, sel_state_key: str,
         )
 
         if st.button("Generate question", key=gen_button_key, use_container_width=True):
-            with st.spinner("Generating question…"):
-                try:
-                    qresult = generate_one_question_for_topic(
-                        client=client, model=model, vdb=vdb,
-                        db_path=GAPS_DB_PATH,
-                        topic=topic.strip(),
-                        purpose=purpose,
-                    )
-                except Exception as e:
-                    log_message('error', f"single question gen failed ({purpose}): {e}")
-                    st.error(f"Generation failed: {e}")
-                    qresult = None
-
-            if qresult and not qresult["in_scope"]:
-                st.markdown(
-                    f'<div style="background-color:#f59e0b;color:#1a1a1a;'
-                    f'padding:0.5rem 0.9rem;border-radius:6px;margin:0.5rem 0;">'
-                    f'⚠️ {qresult["reason"]}'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-            elif qresult and qresult.get("question_id"):
-                qid = qresult["question_id"]
-                with st.spinner("Answering…"):
-                    try:
-                        import json as _json
-                        if purpose == PURPOSE_DEMO and qresult.get("source_chunk_content"):
-                            # Auto Q&A: answer DIRECTLY from the source chunk.
-                            ar = answer_with_source(
-                                client=client, model=model,
-                                question_text=qresult["question_text"],
-                                source_text=qresult["source_chunk_content"],
-                                system_prompt_template=system_prompt,
-                                content_summary=content_summary,
-                                max_tokens=ss.get('__max_tokens', 2000),
-                                temperature=ss.get('__temperature', 0.2),
-                            )
-                            # Persist the source chunk so the panel can render
-                            # it under the answer (matching the chat UX).
-                            src_docs_json = _json.dumps([{
-                                "page_content": qresult["source_chunk_content"],
-                                "metadata": qresult.get("source_chunk_metadata") or {},
-                            }])
-                            save_question_answer(
-                                GAPS_DB_PATH, qid,
-                                ar['answer'], ar['confidence'], ar['missing_info'],
-                                num_text_docs=ar['num_text_docs'],
-                                num_image_docs=ar['num_image_docs'],
-                                source_docs_json=src_docs_json,
-                            )
-                        else:
-                            # Gap Finder (or topic-targeted): full retrieval.
-                            ar = answer_synthetic_question(
-                                client=client, model=model,
-                                embeddings=embeddings, vdb=vdb,
-                                validated_vdb=ss.get('validated_vdb'),
-                                bm25_index=ss.get('bm25_index'),
-                                bm25_corpus_docs=ss.get('bm25_corpus_docs'),
-                                reranker_model=ss.get('reranker_model'),
-                                system_prompt_template=system_prompt,
-                                content_summary=content_summary,
-                                question_text=qresult["question_text"],
-                                max_tokens=ss.get('__max_tokens', 2000),
-                                temperature=ss.get('__temperature', 0.2),
-                            )
-                            src_docs_json = _json.dumps(ar.get('source_docs') or [])
-                            save_answer_and_record_gap(
-                                GAPS_DB_PATH, qid,
-                                ar['answer'], ar['confidence'], ar['missing_info'],
-                                num_text_docs=ar['num_text_docs'],
-                                num_image_docs=ar['num_image_docs'],
-                                user_name=ss.get('full_name') or ss.get('user_name'),
-                                model=model,
-                                source_docs_json=src_docs_json,
-                            )
-                    except Exception as e:
-                        log_message('error', f"auto-answer failed ({purpose}): {e}")
-                        st.error(f"Answer step failed: {e}")
-                ss[sel_state_key] = qid
-                st.rerun()
-            elif qresult and qresult.get("reason"):
-                st.warning(qresult["reason"])
+            _generate_and_answer_synth_q(
+                purpose=purpose, sel_state_key=sel_state_key, topic=topic,
+            )
 
 
 def show_synthetic_questions_sidebar():
@@ -775,19 +1408,23 @@ def _render_synth_qa_panel(*, sel_state_key: str, show_gap_ui: bool, header_labe
     text_color = "#000000"
     muted_color = "#4b5563"
 
-    header_col, close_col = st.columns([6, 1])
-    with header_col:
-        st.markdown(
-            f'<div class="synth-panel-text" style="background-color:{panel_bg};'
-            f'padding:0.5rem 0.75rem;border-radius:6px 6px 0 0;margin-bottom:0;">'
-            f'<h3 style="margin:0;">{header_label}</h3>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    with close_col:
-        if st.button("Close", key=f"{sel_state_key}_close_{sel_id}", use_container_width=True):
-            ss[sel_state_key] = None
-            st.rerun()
+    # Map each panel to its sidebar topic widget + generation purpose so the
+    # "Next" button can generate a fresh question of the same kind (respecting
+    # any topic the user typed in the sidebar).
+    from core.question_generation import PURPOSE_DEMO, PURPOSE_GAP_FINDER
+    _panel_meta = {
+        '_selected_auto_qa_q_id': ('synq_topic', PURPOSE_DEMO),
+        '_selected_gap_finder_q_id': ('gapq_topic', PURPOSE_GAP_FINDER),
+    }
+
+    # Title header only — Next / Close buttons are rendered at the BOTTOM of the panel.
+    st.markdown(
+        f'<div class="synth-panel-text" style="background-color:{panel_bg};'
+        f'padding:0.5rem 0.75rem;border-radius:6px 6px 0 0;margin-bottom:0;">'
+        f'<h3 style="margin:0;">{header_label}</h3>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         f'<div class="synth-panel-text" style="background-color:{panel_bg};'
@@ -913,33 +1550,59 @@ def _render_synth_qa_panel(*, sel_state_key: str, show_gap_ui: bool, header_labe
             '</div>',
             unsafe_allow_html=True,
         )
-        with st.form(key=f"{sel_state_key}_gap_input_{sel_id}", clear_on_submit=True):
+        _gap_form_key = f"{sel_state_key}_gap_input_{sel_id}"
+        with st.form(key=_gap_form_key, clear_on_submit=True):
             knowledge = st.text_area(
                 "Your knowledge",
                 height=120,
                 placeholder="Do you have something to add?",
                 key=f"{sel_state_key}_gap_text_{sel_id}",
             )
+            approver_id = render_approver_selectbox(_gap_form_key)
             submitted = st.form_submit_button("Submit for review")
             if submitted:
-                if knowledge.strip():
+                if not knowledge.strip():
+                    st.warning("Please enter some text before submitting.")
+                elif not approver_id:
+                    st.warning("Please select a superuser to approve this submission.")
+                else:
                     try:
                         ok = record_user_input(
                             GAPS_DB_PATH,
                             gap_id_link,
                             knowledge.strip(),
                             user_name=ss.get('full_name') or ss.get('user_name'),
+                            assigned_to=approver_id,
                         )
                         if ok:
                             st.toast(f"Saved for review (gap #{gap_id_link})")
+                            notify_assignee_via_outlook(
+                                assignee_user_id=approver_id,
+                                gap_id=gap_id_link,
+                                submitter_name=ss.get('full_name') or ss.get('user_name'),
+                                question=row.get('text', ''),
+                                contribution=knowledge.strip(),
+                            )
                             st.rerun()
                         else:
                             st.warning("Could not find linked gap entry.")
                     except Exception as e:
                         log_message('error', f"synth gap input save failed: {e}")
                         st.error(f"Could not save: {e}")
-                else:
-                    st.warning("Please enter some text before submitting.")
+
+    # Next / Close buttons at the BOTTOM of the panel.
+    _bot_next_col, _bot_close_col = st.columns(2)
+    with _bot_next_col:
+        if st.button("Next", key=f"{sel_state_key}_next_bot_{sel_id}", use_container_width=True):
+            _topic_key, _purpose = _panel_meta[sel_state_key]
+            _generate_and_answer_synth_q(
+                purpose=_purpose, sel_state_key=sel_state_key,
+                topic=ss.get(_topic_key, ""),
+            )
+    with _bot_close_col:
+        if st.button("Close", key=f"{sel_state_key}_close_bot_{sel_id}", use_container_width=True):
+            ss[sel_state_key] = None
+            st.rerun()
 
     st.markdown("---")
     return True

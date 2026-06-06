@@ -16,7 +16,7 @@ BillTrak is an invoice management system for telecom/utility/data services that 
 """
 
 system_prompt = """
-You are BIDA a digital assistant for TEOCO. You are helping a customer with a question about manuals of the BillTrak.
+You are TRIBIQ a digital assistant for TEOCO. You are helping a customer with a question about manuals of the BillTrak.
 Based on the CONTEXT INFORMATION and ADDITIONAL INFORMATION provided below, answer the following {question}.
 
 SCOPE

@@ -11,10 +11,10 @@ from streamlit_star_rating import st_star_rating
 from utils.chat_utils import *
 from utils.json_utils import *
 from app_helper import *
-from core.gap_detection import record_user_input
+from core.gap_detection import record_user_input, get_gap
 
 st.set_page_config(
-    page_title="BIDA",
+    page_title="TRIBIQ",
     page_icon="✨",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -65,35 +65,50 @@ try:
         if '_form_gen' not in ss:
             ss._form_gen = 0
 
-        c1, c2 = st.columns([10, 1])
-        with c1:
-            with st.form(key=f"question_form_{ss._form_gen}", clear_on_submit=False, border=False):
-                question_value = st.text_input("Question",
-                    placeholder="Type your question and press Enter...",
-                    label_visibility="collapsed",
-                    key="chat_question_input",
-                    disabled=not(ss.accept_questions))
-                form_submitted = st.form_submit_button("Ask",
-                    disabled=not(ss.accept_questions))
-            # Hide the submit button OFF-SCREEN rather than via display:none.
-            # Streamlit 1.46 emits a "Missing Submit Button" warning when
-            # the only submit button is display:none — but `position:
-            # absolute; left:-9999px` keeps the button in the DOM and in
-            # flow detection, so the warning stays silent while the button
-            # remains invisible. Users press Enter to submit.
-            st.markdown("""<style>
-                div[data-testid="stFormSubmitButton"],
-                .stFormSubmitButton {
-                    position: absolute !important;
-                    left: -9999px !important;
-                    width: 1px !important;
-                    height: 1px !important;
-                    overflow: hidden !important;
-                }
-            </style>""", unsafe_allow_html=True)
-        with c2:
-            if st.button("New", disabled=not(ss.accept_questions)):
-                clear_QA()
+        # The main area shows EITHER the Q&A/chat screen OR exactly one panel
+        # (HITL, Manage Knowledge, Auto Q&A, Gap Finder, Quiz). While a panel
+        # is open, hide the chat input bar, the New button and the Q&A history;
+        # each panel's Close button restores this Q&A screen.
+        panel_open = active_main_panel() is not None
+
+        if not panel_open:
+            c1, c2 = st.columns([10, 1])
+            with c1:
+                with st.form(key=f"question_form_{ss._form_gen}", clear_on_submit=False, border=False):
+                    question_value = st.text_input("Question",
+                        placeholder="Type your question and press Enter...",
+                        label_visibility="collapsed",
+                        key="chat_question_input",
+                        disabled=not(ss.accept_questions))
+                    form_submitted = st.form_submit_button("Ask",
+                        disabled=not(ss.accept_questions))
+                # Hide the submit button OFF-SCREEN rather than via display:none.
+                # Streamlit 1.46 emits a "Missing Submit Button" warning when
+                # the only submit button is display:none — but `position:
+                # absolute; left:-9999px` keeps the button in the DOM and in
+                # flow detection, so the warning stays silent while the button
+                # remains invisible. Users press Enter to submit.
+                #
+                # SCOPED via :has() to ONLY this chat question form. The previous
+                # unscoped selector hid EVERY form-submit button in the app —
+                # breaking the quiz, the knowledge-contribution form, and the
+                # Manage-Knowledge Save/Delete buttons.
+                st.markdown("""<style>
+                    [data-testid="stForm"]:has(input[placeholder^="Type your question"]) [data-testid="stFormSubmitButton"] {
+                        position: absolute !important;
+                        left: -9999px !important;
+                        width: 1px !important;
+                        height: 1px !important;
+                        overflow: hidden !important;
+                    }
+                </style>""", unsafe_allow_html=True)
+            with c2:
+                if st.button("New", disabled=not(ss.accept_questions)):
+                    clear_QA()
+        else:
+            # A panel owns the main area; no chat submission this run.
+            form_submitted = False
+            question_value = ""
 
         status = st.empty()
         answer_placeholder = st.empty()
@@ -179,6 +194,13 @@ try:
         except Exception as e:
             log_message("error", f"Error rendering HITL sidebar: {e}")
 
+        # Manage Knowledge — sidebar expander after HITL (superuser-only).
+        try:
+            with st.sidebar:
+                show_kb_manager_sidebar()
+        except Exception as e:
+            log_message("error", f"Error rendering Manage Knowledge sidebar: {e}")
+
         # Auto Q&A — sidebar expander after HITL.
         try:
             with st.sidebar:
@@ -193,12 +215,32 @@ try:
         except Exception as e:
             log_message("error", f"Error rendering Gap Finder sidebar: {e}")
 
+        # Quiz — sidebar expander after Gap Finder. Visible to any user.
+        try:
+            with st.sidebar:
+                show_quiz_sidebar()
+        except Exception as e:
+            log_message("error", f"Error rendering Quiz sidebar: {e}")
+
+        # If an assignment just staged a notification e-mail, confirm before
+        # sending (pops the "Send email?" Yes/No modal). No-op when nothing staged.
+        try:
+            maybe_confirm_pending_email()
+        except Exception as e:
+            log_message("error", f"Error rendering email-confirm dialog: {e}")
+
         # HITL review panel — when a sidebar row is selected, render the full
         # review form at the top of the main area. Chat stays visible below.
         try:
             show_hitl_review_main()
         except Exception as e:
             log_message("error", f"Error rendering HITL main panel: {e}")
+
+        # Manage Knowledge panel — list/search/edit/delete injected knowledge.
+        try:
+            show_kb_manager_main()
+        except Exception as e:
+            log_message("error", f"Error rendering Manage Knowledge main panel: {e}")
 
         # Auto Q&A panel — surfaces the latest auto-generated Q+A in the main area.
         try:
@@ -213,9 +255,16 @@ try:
         except Exception as e:
             log_message("error", f"Error rendering Gap Finder main panel: {e}")
 
+        # Quiz panel — renders the current quiz question + grading + next.
         try:
-            display_QA(ss.qa_history, ss.show_appraisal_widgets, ss.filter_appraised)
-            log_message("info", ss.qa_history)
+            show_quiz_main()
+        except Exception as e:
+            log_message("error", f"Error rendering Quiz main panel: {e}")
+
+        try:
+            if not panel_open:
+                display_QA(ss.qa_history, ss.show_appraisal_widgets, ss.filter_appraised)
+                log_message("info", ss.qa_history)
         except Exception as e:
             log_message("error", f"Error displaying Q&A page: {e}")
             st.error(f"Could not display Q&A due to an unexpected error! Please try to reload the page: {e}")
@@ -226,7 +275,7 @@ try:
         # corrections / additions. Either way the submission feeds the same
         # HITL queue as gap contributions.
         try:
-            if ss.get('_latest_gap_id'):
+            if not panel_open and ss.get('_latest_gap_id'):
                 gap_id = ss._latest_gap_id
                 is_gap = ss.get('_latest_is_gap', False)
                 with st.form(key=f"gap_input_form_{gap_id}", clear_on_submit=True):
@@ -249,18 +298,33 @@ try:
                         height=120,
                         placeholder=placeholder,
                     )
+                    approver_id = render_approver_selectbox(f"gap_input_form_{gap_id}")
                     submitted = st.form_submit_button("Submit for review")
                     if submitted:
-                        if user_knowledge.strip():
+                        if not user_knowledge.strip():
+                            st.warning("Please enter some text before submitting.")
+                        elif not approver_id:
+                            st.warning("Please select a superuser to approve this submission.")
+                        else:
                             try:
                                 ok = record_user_input(
                                     GAPS_DB_PATH,
                                     gap_id,
                                     user_knowledge.strip(),
                                     user_name=ss.get('full_name') or ss.get('user_name'),
+                                    assigned_to=approver_id,
                                 )
                                 if ok:
                                     st.toast("Thanks! Saved for review.")
+                                    # Notify the assigned reviewer via Outlook.
+                                    _gap_row = get_gap(GAPS_DB_PATH, gap_id) or {}
+                                    notify_assignee_via_outlook(
+                                        assignee_user_id=approver_id,
+                                        gap_id=gap_id,
+                                        submitter_name=ss.get('full_name') or ss.get('user_name'),
+                                        question=_gap_row.get('question', ''),
+                                        contribution=user_knowledge.strip(),
+                                    )
                                     ss._latest_gap_id = None
                                     ss._latest_is_gap = False
                                     # Force a rerun so the HITL sidebar
@@ -273,8 +337,6 @@ try:
                             except Exception as e:
                                 log_message('error', f"Failed to record user input: {e}")
                                 st.error(f"Could not save your input: {e}")
-                        else:
-                            st.warning("Please enter some text before submitting.")
         except Exception as e:
             log_message("error", f"Error rendering gap-input form: {e}")
 

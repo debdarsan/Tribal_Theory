@@ -253,12 +253,15 @@ def _build_one_question_messages(topic: str, excerpts: str, purpose: str = PURPO
         user = (
             f"{topic_line}"
             f"Source excerpts:\n---\n{excerpts}\n---\n\n"
-            f"Generate exactly ONE evaluation question {topic_phrase} that is designed to "
-            f"PROBE THE LIMITS of these excerpts. Focus on what is NOT clearly specified, "
-            f"edge cases, boundary conditions, contradictions, missing details, or what-if "
-            f"scenarios that the source doesn't fully cover. Prefer 'edge_case' type. "
+            f"Generate exactly ONE SHORT, SIMPLE evaluation question {topic_phrase} that "
+            f"probes the limits of these excerpts — something NOT clearly specified, an "
+            f"edge case, a boundary condition, or a missing detail the source doesn't "
+            f"fully cover. Keep it to a single, plain sentence (ideally under 20 words) "
+            f"that a person can answer directly and to the point. Do NOT bundle multiple "
+            f"questions together, and do NOT ask for a long, multi-part explanation. "
             f"The goal is to surface where the documents fall short — not to ask about "
-            f"things already well-explained. Output a single-element JSON array."
+            f"things already well-explained. Prefer 'edge_case' type. Output a "
+            f"single-element JSON array."
         )
     else:
         user = (
